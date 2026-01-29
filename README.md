@@ -34,3 +34,9 @@ forge test -vv --match-contract QKeyRotationInvariantSmart
 - Security invariants (v0.2.0): `spec/security-invariants-v0.2.0.md`
 - Limitations & non-goals (v0.2.0): `spec/limitations-nongoals-v0.2.0.md`
 - ABI stability & upgrade policy (v0.2.0): `spec/abi-upgrade-policy-v0.2.0.md`
+
+## Local Demo (Anvil)
+Run a full local flow (deploy → init → propose → guardians cancel → propose → activate):
+
+```bash
+./demo/anvil-demo.sh
