@@ -28,3 +28,6 @@ forge test -vv
 forge test -vv --match-contract QKeyRotationInvariantSmart
 
 
+
+## Security
+- Threat model (v0.2.0): `spec/threat-model-v0.2.0.md`
