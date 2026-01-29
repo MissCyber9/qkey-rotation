@@ -33,3 +33,4 @@ forge test -vv --match-contract QKeyRotationInvariantSmart
 - Threat model (v0.2.0): `spec/threat-model-v0.2.0.md`
 - Security invariants (v0.2.0): `spec/security-invariants-v0.2.0.md`
 - Limitations & non-goals (v0.2.0): `spec/limitations-nongoals-v0.2.0.md`
+- ABI stability & upgrade policy (v0.2.0): `spec/abi-upgrade-policy-v0.2.0.md`
