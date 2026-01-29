@@ -1,3 +1,6 @@
+[![CI](https://github.com/MissCyber9/qkey-rotation/actions/workflows/ci.yml/badge.svg)](https://github.com/MissCyber9/qkey-rotation/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/MissCyber9/qkey-rotation)](https://github.com/MissCyber9/qkey-rotation/releases)
+
 # QKey Rotation (MVP)
 
 [![CI](https://github.com/MissCyber9/qkey-rotation/actions/workflows/ci.yml/badge.svg)](https://github.com/MissCyber9/qkey-rotation/actions/workflows/ci.yml)
