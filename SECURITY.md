@@ -12,7 +12,7 @@ Please treat any suspected vulnerability as confidential until coordinated discl
 Please report security issues privately.
 Preferred channels (in order):
 1. GitHub Security Advisories (recommended)
-2. Email: (add a dedicated security email or contact method)
+2. Email: 202547711+MissCyber9@users.noreply.github.com
 
 Include:
 - impact and threat scenario
