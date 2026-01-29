@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "lib/forge-std/src/Test.sol";
+import "forge-std/Test.sol";
 import "../../src/QKeyRotationV3.sol";
 import "../../src/libraries/EIP712Ops.sol";
 
@@ -22,10 +22,11 @@ contract Handler is Test {
         guardians = _guardians;
     }
 
-    function _sign(uint8 opType, bytes32 payloadHash, uint256 deadline) internal returns (bytes memory) {
+    function _sign(uint8 opType, bytes32 payloadHash, uint256 deadline) internal view returns (bytes memory) {
         uint256 nonce = qr.getNonce(walletId);
-        bytes32 structHash = EIP712Ops.opStructHash(walletId, opType, payloadHash, nonce, deadline);
-        bytes32 digest = EIP712Ops.hashTyped(structHash);
+        bytes32 structHash;
+        bytes32 digest;
+        (structHash, digest) = qr.opDigest(walletId, opType, payloadHash, nonce, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, digest);
         return abi.encodePacked(r, s, v);
     }

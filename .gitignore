@@ -4,3 +4,13 @@ cache
 dist
 .env
 .DS_Store
+
+# Foundry
+out/
+cache/
+foundry.lock
+remappings.txt
+
+# temp
+*.disabled
+PY

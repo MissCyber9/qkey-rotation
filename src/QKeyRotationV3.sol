@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ECDSA} from "lib/openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {ECDSA} from "openzeppelin-contracts/utils/cryptography/ECDSA.sol";
 import {KeysetLib} from "./libraries/KeysetLib.sol";
 import {EIP712Ops} from "./libraries/EIP712Ops.sol";
 
@@ -88,23 +88,19 @@ contract QKeyRotationV3 {
     error NotInitialized();
     error AlreadyInitialized();
     error Unauthorized();
-    error Frozen();
+    error WalletFrozen();      // renamed (was Frozen) to avoid collision with event Frozen
     error Cooldown();
     error RateLimited();
     error OpNotFound();
     error OpNotExecutable();
     error OpExpired();
     error OpCanceledOrExecuted();
-    error BadKeyset();
     error BadPolicy();
     error BadGuardians();
     error BadSig();
     error Deadline();
     error GuardiansDisabled();
     error FreezeDisabled();
-
-    // ---------- Constants ----------
-    uint16 internal constant SCHEME_ECDSA = KeysetLib.SCHEME_ECDSA_SECP256K1;
 
     // ---------- Init ----------
     function initWallet(
@@ -167,17 +163,15 @@ contract QKeyRotationV3 {
         bytes calldata ownerSig
     ) external returns (uint256 opId) {
         WalletState storage s = _state(walletId);
-        if (isFrozen(walletId)) revert Frozen();
+        if (isFrozen(walletId)) revert WalletFrozen();
 
-        // build payloadHash (rotation to newOwner only for MVP)
         bytes32 payloadHash = keccak256(abi.encodePacked("ROTATE_TO", newOwner));
-
         _requireOwnerAuth(s, walletId, uint8(OpType.ROTATE), payloadHash, deadline, ownerSig);
 
-        // create pending op
         opId = _newOpId(s);
         uint32 execAt = uint32(block.timestamp + s.policy.rotationDelay);
         uint32 expAt  = uint32(block.timestamp + _defaultExpiry());
+
         s.ops[opId] = PendingOp({
             opType: OpType.ROTATE,
             createdAt: uint32(block.timestamp),
@@ -201,7 +195,6 @@ contract QKeyRotationV3 {
         if (!_isGuardian(s, msg.sender)) revert Unauthorized();
         if (op.canceled || op.executed) revert OpCanceledOrExecuted();
 
-        // veto means cancel
         op.canceled = true;
         emit OpVetoed(walletId, opId, msg.sender);
         emit OpCanceled(walletId, opId);
@@ -209,12 +202,11 @@ contract QKeyRotationV3 {
 
     function executeRotation(bytes32 walletId, uint256 opId, address newOwner) external {
         WalletState storage s = _state(walletId);
-        if (isFrozen(walletId)) revert Frozen();
+        if (isFrozen(walletId)) revert WalletFrozen();
 
         PendingOp storage op = s.ops[opId];
         _requireOpExecutable(s, op, OpType.ROTATE);
 
-        // payload must match
         bytes32 expected = keccak256(abi.encodePacked("ROTATE_TO", newOwner));
         if (op.payloadHash != expected) revert OpNotExecutable();
 
@@ -237,7 +229,7 @@ contract QKeyRotationV3 {
     ) external returns (uint256 opId) {
         WalletState storage s = _state(walletId);
         if (!s.policy.guardiansCanRecover) revert GuardiansDisabled();
-        if (isFrozen(walletId)) revert Frozen(); // policy choice: block when frozen (strict)
+        if (isFrozen(walletId)) revert WalletFrozen();
 
         if (!_isGuardian(s, msg.sender)) revert Unauthorized();
 
@@ -259,9 +251,7 @@ contract QKeyRotationV3 {
             executed: false
         });
 
-        // auto-approve proposer
         _approveGuardian(s, walletId, opId, msg.sender);
-
         emit OpProposed(walletId, opId, OpType.RECOVER, payloadHash, execAt, expAt);
     }
 
@@ -280,14 +270,14 @@ contract QKeyRotationV3 {
 
     function executeRecovery(bytes32 walletId, uint256 opId, address newOwner) external {
         WalletState storage s = _state(walletId);
+        if (isFrozen(walletId)) revert WalletFrozen();
+
         PendingOp storage op = s.ops[opId];
         _requireOpExecutable(s, op, OpType.RECOVER);
 
-        // payload must match
         bytes32 expected = keccak256(abi.encodePacked("RECOVER_TO", newOwner));
         if (op.payloadHash != expected) revert OpNotExecutable();
 
-        // threshold
         if (op.approvals < s.guardianSet.threshold) revert Unauthorized();
 
         _enforceFinalizeGuards(s);
@@ -295,18 +285,17 @@ contract QKeyRotationV3 {
         bytes32 oldHash = s.ownerKeyset.keysetHash;
         _setOwnerKeyset(s, newOwner);
 
-        // Recovery semantics: cancel all pending ops (simple + safe)
-        _cancelAllOps(s, walletId);
-
         op.executed = true;
         emit RecoveryExecuted(walletId, opId, oldHash, s.ownerKeyset.keysetHash);
     }
 
     // ---------- Emergency Freeze ----------
-    function freeze(bytes32 walletId, uint32 durationSeconds, uint256 deadline, bytes calldata ownerSig)
-        external
-        returns (uint256 opId)
-    {
+    function freeze(
+        bytes32 walletId,
+        uint32 durationSeconds,
+        uint256 deadline,
+        bytes calldata ownerSig
+    ) external returns (uint256 opId) {
         WalletState storage s = _state(walletId);
 
         if (!s.policy.ownerCanFreeze) revert FreezeDisabled();
@@ -319,7 +308,6 @@ contract QKeyRotationV3 {
         uint32 until = uint32(block.timestamp + durationSeconds);
         s.frozenUntil = until;
 
-        // record op (immediate)
         s.ops[opId] = PendingOp({
             opType: OpType.FREEZE,
             createdAt: uint32(block.timestamp),
@@ -385,10 +373,10 @@ contract QKeyRotationV3 {
         emit Unfrozen(walletId, opId);
     }
 
-    // ---------- Admin: Policy / Guardians (owner-auth, delayed optional later) ----------
+    // ---------- Admin: Policy / Guardians ----------
     function updatePolicy(bytes32 walletId, Policy calldata newPolicy, uint256 deadline, bytes calldata ownerSig) external {
         WalletState storage s = _state(walletId);
-        if (isFrozen(walletId)) revert Frozen();
+        if (isFrozen(walletId)) revert WalletFrozen();
         _validatePolicy(newPolicy);
 
         bytes32 payloadHash = keccak256(_encodePolicy(newPolicy));
@@ -400,7 +388,7 @@ contract QKeyRotationV3 {
 
     function updateGuardians(bytes32 walletId, address[] calldata guardians, uint16 threshold, uint256 deadline, bytes calldata ownerSig) external {
         WalletState storage s = _state(walletId);
-        if (isFrozen(walletId)) revert Frozen();
+        if (isFrozen(walletId)) revert WalletFrozen();
         _validateGuardians(guardians, threshold);
 
         bytes32 payloadHash = keccak256(abi.encodePacked("GUARDIANS", keccak256(abi.encode(guardians)), threshold));
@@ -448,13 +436,13 @@ contract QKeyRotationV3 {
     }
 
     function _setOwnerKeyset(WalletState storage s, address owner) internal {
-        // v0.3 MVP: single ECDSA key in keyset
         delete s.ownerKeyset.keys;
         s.ownerKeyset.keys.push(KeysetLib.ecdsaKey(owner));
         s.ownerKeyset.threshold = 1;
         s.ownerKeyset.flags = 0;
         unchecked { s.ownerKeyset.version += 1; }
-        s.ownerKeyset.keysetHash = KeysetLib.computeKeysetHash(s.ownerKeyset.keys, s.ownerKeyset.threshold, s.ownerKeyset.flags, s.ownerKeyset.version);
+        s.ownerKeyset.keysetHash =
+            KeysetLib.computeKeysetHash(s.ownerKeyset.keys, s.ownerKeyset.threshold, s.ownerKeyset.flags, s.ownerKeyset.version);
     }
 
     function _setGuardians(WalletState storage s, address[] calldata guardians, uint16 threshold) internal {
@@ -467,7 +455,6 @@ contract QKeyRotationV3 {
     function _validateGuardians(address[] calldata guardians, uint16 threshold) internal pure {
         if (guardians.length == 0) revert BadGuardians();
         if (threshold == 0 || threshold > guardians.length) revert BadGuardians();
-        // no duplicates, no zero
         for (uint256 i = 0; i < guardians.length; i++) {
             if (guardians[i] == address(0)) revert BadGuardians();
             for (uint256 j = i + 1; j < guardians.length; j++) if (guardians[i] == guardians[j]) revert BadGuardians();
@@ -480,7 +467,6 @@ contract QKeyRotationV3 {
         if (p.freezeMaxDuration < 1 hours) revert BadPolicy();
         if (p.windowSeconds < 1 hours) revert BadPolicy();
         if (p.maxRotationsPerWindow == 0) revert BadPolicy();
-        // allow cooldown 0.. reasonable
     }
 
     function _encodePolicy(Policy memory p) internal pure returns (bytes memory) {
@@ -505,9 +491,7 @@ contract QKeyRotationV3 {
     ) internal {
         if (block.timestamp > deadline) revert Deadline();
 
-        // Only ECDSA owner supported in v0.3 MVP
-        KeysetLib.KeyRef memory k = s.ownerKeyset.keys[0];
-        address owner = KeysetLib.ecdsaAddress(k);
+        address owner = KeysetLib.ecdsaAddress(s.ownerKeyset.keys[0]);
 
         bytes32 structHash = EIP712Ops.opStructHash(walletId, opType, payloadHash, s.nonce, deadline);
         bytes32 digest = EIP712Ops.hashTyped(structHash);
@@ -518,17 +502,13 @@ contract QKeyRotationV3 {
     }
 
     function _enforceFinalizeGuards(WalletState storage s) internal view {
-        // finalize cooldown
         if (s.policy.minFinalizeCooldown != 0) {
             if (block.timestamp < uint256(s.lastFinalizeAt) + s.policy.minFinalizeCooldown) revert Cooldown();
         }
 
-        // rate limit window
-        if (s.windowStart == 0 || block.timestamp > uint256(s.windowStart) + s.policy.windowSeconds) {
-            // window would reset on finalize accounting; allow here
-            return;
+        if (s.windowStart != 0 && block.timestamp <= uint256(s.windowStart) + s.policy.windowSeconds) {
+            if (s.rotationsInWindow >= s.policy.maxRotationsPerWindow) revert RateLimited();
         }
-        if (s.rotationsInWindow >= s.policy.maxRotationsPerWindow) revert RateLimited();
     }
 
     function _countRotationFinalize(WalletState storage s) internal {
@@ -541,13 +521,17 @@ contract QKeyRotationV3 {
         unchecked { s.rotationsInWindow += 1; }
     }
 
-    function _cancelAllOps(WalletState storage s, bytes32 walletId) internal {
-        // Simple O(n) over opIds is not possible without list; for MVP, we do nothing heavy.
-        // Instead: rely on epoch bump to invalidate approvals & prevent execution of stale ops.
-        // We bump guardianEpoch via epoch? That would require guardians update. Better: mark frozen?
-        // MVP pragmatic: set frozen for short time? No.
-        // So we do minimal safe: mark wallet cooldown by finalizeAt already done.
-        // In production: keep active op registry to iterate/cancel.
-        walletId; s; // silence warnings
+    /// @notice Public helper to compute the exact digest verified for meta-ops.
+    ///         SDKs/tests should use this to avoid domain/hash mismatches.
+    function opDigest(
+        bytes32 walletId,
+        uint8 opType,
+        bytes32 payloadHash,
+        uint256 nonce,
+        uint256 deadline
+    ) public view returns (bytes32 structHash, bytes32 digest) {
+        structHash = EIP712Ops.opStructHash(walletId, opType, payloadHash, nonce, deadline);
+        digest = EIP712Ops.hashTyped(structHash);
     }
+
 }
