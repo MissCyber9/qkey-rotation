@@ -1,4 +1,9 @@
 # QKey Rotation (MVP)
+
+[![CI](https://github.com/MissCyber9/qkey-rotation/actions/workflows/ci.yml/badge.svg)](https://github.com/MissCyber9/qkey-rotation/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/MissCyber9/qkey-rotation)](https://github.com/MissCyber9/qkey-rotation/releases)
+
+# QKey Rotation (MVP)
 Timelocked key rotation registry for EVM wallets with EIP-712 signatures and EIP-1271 (smart-wallet) support.
 
 ## Why
